@@ -1,71 +1,78 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace YoloMarkNet
 {
-     
     public class Image : Notifier
     {
         private bool _isSelected;
         public string Path { get; set; }
         public ImageSource Thumb { get; set; }
+
         public bool IsSelected
         {
-            get { return _isSelected; }
-            set { _isSelected = value; NotifyPropertyChanged(); }
+            get => _isSelected;
+            set
+            {
+                _isSelected = value;
+                NotifyPropertyChanged();
+            }
         }
     }
 
     public class BoundingBox : Notifier
     {
-        public BoundingBox(Rect rect, Class c) { this.rect = rect; Class = c; }
-        private Rect rect;
+        private Rect _rect;
+
+        public BoundingBox(Rect rect, Class c)
+        {
+            _rect = rect;
+            Class = c;
+        }
+
         public Class Class { get; }
+
         public double X
         {
-            get { return rect.X; }
+            get => _rect.X;
             set
             {
-                rect.X = value;
+                _rect.X = value;
                 NotifyPropertyChanged();
             }
         }
+
         public double Y
         {
-            get { return rect.Y; }
+            get => _rect.Y;
             set
             {
-                rect.Y = value;
+                _rect.Y = value;
                 NotifyPropertyChanged();
             }
         }
+
         public double Width
         {
-            get { return rect.Width; }
+            get => _rect.Width;
             set
             {
-                rect.Width = value;
+                _rect.Width = value;
                 NotifyPropertyChanged();
             }
         }
+
         public double Height
         {
-            get { return rect.Height; }
+            get => _rect.Height;
             set
             {
-                rect.Height = value;
+                _rect.Height = value;
                 NotifyPropertyChanged();
             }
         }
@@ -78,62 +85,112 @@ namespace YoloMarkNet
             ClassDescriptor = desc;
             Color = color;
         }
-        public string ClassDescriptor { get; }
-        public Brush Color { get; }
+
+        private string ClassDescriptor { get; }
+        private Brush Color { get; }
     }
 
     public class MainWindowViewModel : Notifier
     {
+        private static readonly Random seededRandom = new Random(694201337);
+        private Rect _ghost;
+        private bool _isMouseDown;
+        private Class _selectedClass;
 
         private ImageSource _selectedImageSource;
-        private Class _selectedClass;
-        private bool _isMouseDown;
-        private Rect _ghost;
-       
+
+        private Point mouseDownLocation;
+
+        public MainWindowViewModel()
+        {
+            Directory.CreateDirectory("data\\img");
+
+            //Fix design time errors
+            if (DesignerProperties.GetIsInDesignMode(new DependencyObject())) return;
+
+            Classes = File.ReadAllText("data\\obj.names")
+                .Split('\n')
+                .Select(f => new Class(f.Trim(), GetPseudorandomBrush()))
+                .ToList();
+
+            Images = Directory.GetFiles("data\\img", "*.jpg")
+                .Select(
+                    f => new Image
+                    {
+                        Path = f,
+                        Thumb = LoadImage(f, true)
+                    })
+                .ToList();
+
+            SelectedImage = Images.FirstOrDefault();
+            if (SelectedImage == null)
+            {
+                MessageBox.Show("No images found, please place images into data/img/");
+                Application.Current.MainWindow.Close();
+                return;
+            }
+
+            var data = Images.Aggregate("", (current, img) => current + $"{img.Path}{Environment.NewLine}");
+            File.WriteAllText("data\\train.txt", data);
+
+
+            SelectedClass = Classes.FirstOrDefault();
+            if (SelectedClass != null) return;
+            MessageBox.Show("No classes found, please enter classes into data/obj.names");
+            Application.Current.MainWindow.Close();
+        }
+
         public Rect Ghost
         {
-            get { return _ghost; }
-            set { _ghost = value; NotifyPropertyChanged(); }
+            get => _ghost;
+            set
+            {
+                _ghost = value;
+                NotifyPropertyChanged();
+            }
         }
+
         public bool IsMouseDown
         {
-            get { return _isMouseDown; }
-            set { _isMouseDown = value; NotifyPropertyChanged(); }
+            get => _isMouseDown;
+            set
+            {
+                _isMouseDown = value;
+                NotifyPropertyChanged();
+            }
         }
 
         public IList<Class> Classes { get; }
 
         public IList<Image> Images { get; }
 
-        public IList<Brush> Colors { get; } 
+        public IList<Brush> Colors { get; }
 
         public ObservableCollection<BoundingBox> BoundingBoxes { get; } = new ObservableCollection<BoundingBox>();
 
         public bool IsLastImage => SelectedImage == Images.Last();
-        public Image SelectedImage
+
+        private Image SelectedImage
         {
             get { return Images.FirstOrDefault(f => f.IsSelected); }
             set
             {
                 SelectedImageSource = null;
                 foreach (var image in Images)
-                {
                     if (image == value)
                     {
                         image.IsSelected = true;
                         SelectedImageSource = LoadImage(image.Path);
                     }
                     else
-                    {
                         image.IsSelected = false;
-                    }
-                }
+
                 BoundingBoxes.Clear();
                 var path = SelectedImage.Path.Substring(0, SelectedImage.Path.Length - 4) + ".txt";
                 if (File.Exists(path))
                 {
                     var boundingBoxes = File.ReadAllLines(path);
-                    foreach (var bb in boundingBoxes) 
+                    foreach (var bb in boundingBoxes)
                     {
                         var split = bb.Split(' ');
                         var x = double.Parse(split[1]) * SelectedImageSource.Width;
@@ -145,90 +202,74 @@ namespace YoloMarkNet
                         BoundingBoxes.Add(new BoundingBox(rect, Classes[classIdx]));
                     }
                 }
+
                 NotifyPropertyChanged();
                 NotifyPropertyChanged(nameof(IsLastImage));
             }
         }
-        
+
         public ImageSource SelectedImageSource
         {
-            get { return _selectedImageSource; }
-            set { _selectedImageSource = value; NotifyPropertyChanged(); }
+            get => _selectedImageSource;
+            set
+            {
+                _selectedImageSource = value;
+                NotifyPropertyChanged();
+            }
         }
-        
+
         public Class SelectedClass
         {
-            get { return _selectedClass; }
-            set { _selectedClass = value; NotifyPropertyChanged(); }
-        }
-        
-        public MainWindowViewModel()
-        {
-
-            System.IO.Directory.CreateDirectory("data\\img");
-
-            //Fix design time errors
-            if (DesignerProperties.GetIsInDesignMode(new System.Windows.DependencyObject())) return;
-             
-            Classes = System.IO.File.ReadAllText("data\\obj.names")
-                                    .Split('\n')
-                                    .Select(f => new Class(f.Trim(), GetPseudorandomBrush()))
-                                    .ToList();
-
-            Images = System.IO.Directory.GetFiles("data\\img", "*.jpg").Select(f => new Image()
+            get => _selectedClass;
+            set
             {
-                Path = f,
-                Thumb = LoadImage(f, true)
-            }).ToList();
-
-            SelectedImage = Images.FirstOrDefault();
-            if(SelectedImage == null)
-            {
-                MessageBox.Show("No images found, please place images into data/img/");
-                Application.Current.MainWindow.Close();
-                return;
+                _selectedClass = value;
+                NotifyPropertyChanged();
             }
-            var data = "";
-            foreach (var img in Images) data += $"{img.Path}{Environment.NewLine}";
-            File.WriteAllText("data\\train.txt", data);
-
-
-            SelectedClass = Classes.FirstOrDefault();
-            if(SelectedClass == null)
-            {
-                MessageBox.Show("No classes found, please enter classes into data/obj.names");
-                Application.Current.MainWindow.Close();
-                return;
-            }
-
         }
 
-        static Random seededRandom = new Random(694201337);
+        public ICommand SelectImageCommand => new Command(
+            p =>
+            {
+                SaveCurrentImage();
+                SelectedImage = (Image) p;
+            });
+
+        public ICommand DeleteBoundingBoxCommand => new Command(p => { BoundingBoxes.Remove((BoundingBox) p); });
+
+        public ICommand SaveCommand => new Command(
+            _ =>
+            {
+                SaveCurrentImage();
+                var currentImgIdx = Images.IndexOf(SelectedImage);
+                if (currentImgIdx < (Images.Count - 1))
+                    SelectedImage = Images[currentImgIdx + 1];
+                else
+                    Application.Current.MainWindow.Close();
+            });
+
         private Brush GetPseudorandomBrush()
-        { 
+        {
             var brushes = typeof(Brushes).GetProperties();
-            int random = seededRandom.Next(brushes.Length);
-            return (Brush)brushes[random].GetValue(null, null);
+            var random = seededRandom.Next(brushes.Length);
+            return (Brush) brushes[random].GetValue(null, null);
         }
 
         private ImageSource LoadImage(string path, bool thumb = false)
         {
             var src = new BitmapImage();
-            using (FileStream stream = File.OpenRead(path))
+            using (var stream = File.OpenRead(path))
             {
                 src.BeginInit();
                 src.StreamSource = stream;
                 src.CacheOption = BitmapCacheOption.OnLoad;
-                src.EndInit(); 
-            } 
-            if (thumb)
-            {
-                var scaleX = 128f / src.PixelWidth;
-                var scaleY = 128f / src.PixelHeight;
-                return new TransformedBitmap(src, new ScaleTransform(scaleX, scaleY));
+                src.EndInit();
             }
-            return src;
 
+            if (!thumb) return src;
+            var scaleX = 128f / src.PixelWidth;
+            var scaleY = 128f / src.PixelHeight;
+            return new TransformedBitmap(src, new ScaleTransform(scaleX, scaleY));
         }
 
         public void MouseMove(Point point)
@@ -236,7 +277,6 @@ namespace YoloMarkNet
             Ghost = new Rect(mouseDownLocation, point);
         }
 
-        private Point mouseDownLocation;
         public void MouseDown(Point point)
         {
             IsMouseDown = true;
@@ -245,11 +285,12 @@ namespace YoloMarkNet
 
         public void MouseUp(Point point)
         {
-            if(IsMouseDown)
+            if (IsMouseDown)
             {
                 var rect = new Rect(mouseDownLocation, point);
                 BoundingBoxes.Add(new BoundingBox(rect, SelectedClass));
             }
+
             IsMouseDown = false;
         }
 
@@ -257,31 +298,6 @@ namespace YoloMarkNet
         {
             IsMouseDown = false;
         }
-
-        public ICommand SelectImageCommand => new Command(p =>
-        {
-            SaveCurrentImage();
-            SelectedImage = (Image)p;
-        });
-
-        public ICommand DeleteBoundingBoxCommand => new Command(p =>
-        {
-            BoundingBoxes.Remove((BoundingBox)p);
-        });
-
-        public ICommand SaveCommand => new Command(_ =>
-        {
-            SaveCurrentImage();
-            var currentImgIdx = Images.IndexOf(SelectedImage);
-            if (currentImgIdx < Images.Count - 1)
-            {
-                SelectedImage = Images[currentImgIdx + 1];
-            }
-            else
-            {
-                Application.Current.MainWindow.Close();
-            }
-        });
 
         private void SaveCurrentImage()
         {
@@ -296,9 +312,8 @@ namespace YoloMarkNet
                 var scaledHeight = bb.Height / SelectedImageSource.Height;
                 data += $"{classIndex} {scaledX} {scaledY} {scaledWidth} {scaledHeight}{Environment.NewLine}";
             }
+
             File.WriteAllText(path, data);
         }
-
     }
-
 }
